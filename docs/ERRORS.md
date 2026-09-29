@@ -19,8 +19,9 @@ All SDK errors inherit from the base `ZKPayrollError` class.
   - `PayoutScheduleCollisionError` - Payout schedule collisions, minimum interval violations, or duplicate schedule identifiers.
   - `PayrollStateConsistencyError` - Payroll state transitions that violate the expected lifecycle or contain inconsistent data.
   - `PayrollCalendarOverlapError` - Payroll calendar cycles that overlap, contain collisions, or define inverted date ranges.
+  - `PaymentInstructionDuplicateError` - Payment instructions that duplicate an existing instruction in the same payroll batch.
 
-*(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZKPayrollError`)*
+*Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZKPayrollError`)*
 
 ## Stable Error Code Reference
 
@@ -32,7 +33,7 @@ Every `ZKPayrollError` exposes:
 
 ### Error Code Registry
 
-The SDK maintains a centralized registry (`ERROR_CODE_REGISTRY`) that maps every stable error code to its category, meaning, whether it is retryable, and a suggested user-facing message. Integrators can use the registry programmatically:
+The SGK maintains a centralized registry (`ERROR_CODE_REGISTRY`) that maps every stable error code to its category, meaning, whether it is retryable, and a suggested user-facing message. Integrators can use the registry programmatically:
 
 ```typescript
 import { ERROR_CODE_REGISTRY, isRetryableErrorCode, getErrorCategory } from "@zk-payroll/core";
@@ -53,6 +54,7 @@ if (isRetryableErrorCode(error.code)) {
 |---|---|---|---|---|
 | `VALIDATION_ERROR` | validation | Input validation failed. | No | The provided parameters failed validation. Please review your inputs and try again. |
 | `PAYOUT_SCHEDULE_COLLISION` | validation | Payout schedule collision or interval violation detected. | No | One or more scheduled payouts collide. Review conflicting execution times and intervals. |
+| `PAYMENT_INSTRUCTION_DUPLICATE` | validation | Payment instruction duplicates an existing instruction in the same payroll batch. | No | A payment instruction duplicates an existing instruction. Review the duplicated instruction and try again. |
 | `WALLET_NOT_INSTALLED` | wallet | Wallet extension is not installed. | No | The wallet extension is not installed. Please install it and try again. |
 | `WALLET_NOT_CONNECTED` | wallet | Wallet is installed but not connected to the dApp. | Yes | The wallet is not connected. Please connect your wallet and try again. |
 | `WALLET_CONNECTION_REJECTED` | wallet | User explicitly rejected the connection request. | Yes | The wallet connection request was rejected. Please approve the connection in your wallet and try again. |
@@ -72,8 +74,8 @@ if (isRetryableErrorCode(error.code)) {
 | `NETWORK_ERROR` | network | HTTP or network request failure. | Yes | A network error occurred. Please check your internet connection and try again. |
 | `SERIALIZATION_FAILED` | serialization | Binary encoding or decoding failed. | No | Failed to serialize or deserialize data. The data may be corrupted. |
 | `ARTIFACT_NOT_FOUND` | artifact | ZK circuit artifact not found at configured path. | Yes | A required proving artifact was not found. Please check your artifact URLs and try again. |
-| `ARTIFACT_ACCESS_DENIED` | artifact | Access to artifact storage was denied. | No | Access to proving artifacts was denied. Please check your permissions and try again. |
-| `ARTIFACT_CORRUPT` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
+| `ARTIFACT_ACCESS_DENIEDN | artifact | Access to artifact storage was denied. | No | Access to proving artifacts was denied. Please check your permissions and try again. |
+| `ARTIFACT_CORRUPTc | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
 | `ARTIFACT_FETCH_FAILED` | artifact | Artifact download failed due to network/server error. | Yes | Failed to download a proving artifact. Please check your network connection and try again. |
 | `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SGK will retry. |
 | `BATCH_VALIDATION_FAILED` | batch | Batch payload validation failed. | No | The batch payload contains invalid entries. Please review the validation errors and try again. |
@@ -92,7 +94,7 @@ if (isRetryableErrorCode(error.code)) {
 
 ## User-Friendly UI Mapping
 
-Use `toUserFriendlyError(error)` to map any SDK or unknown error into a clean, human-readable format suitable for UI toasts and diagnostic logs:
+Use `toUserFriendlyError(error)` to map any SGK or unknown error into a clean, human-readable format suitable for UI hots and diagnostic logs:
 
 ```typescript
 import { toUserFriendlyError } from "@zk-payroll/sdk";
@@ -116,7 +118,7 @@ Contract errors are mapped intelligently from the Soroban RPC responses. You sho
 import { ContractExecutionError, ContractErrorCode } from "@zk-payroll/sdk";
 
 try {
-  await sdk.processPayment("G...", 100n);
+  await sdk.processPayment("G...", 100n");
 } catch (error) {
   if (error instanceof ContractExecutionError) {
     switch (error.code) {
@@ -157,128 +159,4 @@ try {
       showToast("Transaction signing was canceled by the user.");
     } else if (error.code === WalletErrorCode.NETWORK_MISMATCH) {
       // Recovery: Ask the user to switch networks in their wallet extension.
-      showWarning("Please switch your wallet to the Testnet network.");
-    } else {
-      console.error(`Wallet Error [${error.code}]:`, error.message);
-    }
-  }
-}
-```
-
-### 3. Handling Zero-Knowledge Proof Failures (`ProofGenerationError`)
-
-Proof generation is computationally heavy and relies on downloaded circuit artifacts.
-
-```typescript
-import { ProofGenerationError } from "@zk-payroll/sdk";
-
-try {
-  const proof = await generator.generateProof(witness);
-} catch (error) {
-  if (error instanceof ProofGenerationError) {
-    // Recovery: Proof generation failed. This could be due to a malformed witness, 
-    // or an inability to download the .wasm/.zkey artifacts.
-    // Ensure `config.wasmUrl` and `config.zkeyUrl` are reachable.
-    console.error("ZK Proof generation failed:", error.message);
-  }
-}
-```
-
-### 4. Handling Draft Serialization Issues (`SerializationError`)
-
-When importing exported drafts, the data might be corrupted, tampered with, or from an incompatible version.
-
-```typescript
-import { importDraft, SerializationError } from "@zk-payroll/sdk";
-
-try {
-  const { draft, warnings } = importDraft(rawData, expectedChecksum);
-  if (warnings.length > 0) {
-    console.warn("Draft imported with warnings:", warnings);
-  }
-} catch (error) {
-  if (error instanceof SerializationError) {
-    if (error.code === "CHECKSUM_MISMATCH") {
-      // Recovery: Do not trust the payload. Abort the import.
-      alert("The draft file is corrupted or tampered with. Import aborted.");
-    } else {
-      console.error("Draft import failed:", error.message);
-    }
-  }
-}
-```
-
-### 5. Handling Payroll State Consistency Errors (`PayrollStateConsistencyError`)
-
-The SDK guards payroll state transitions and data integrity. When an operation would move a payroll into an invalid state, or when the local state is out of date with the chain, the SDK throws a `PayrollStateConsistencyError`.
-
-```typescript
-import { PayrollStateConsistencyError, PayrollStateConsistencyErrorCode } from "@zk-payroll/sdk";
-
-try {
-  await sdk.approvePayroll(payrollId);
-} catch (error) {
-  if (error instanceof PayrollStateConsistencyError) {
-    switch (error.code) {
-      case PayrollStateConsistencyErrorCode.STATE_VIOLATION:
-        // Recovery: The payroll is not in a state that allows approval.
-        // Refresh the payroll and re-evaluate the available actions.
-        console.error("Payroll cannot be approved in its current state:", error.context.currentState);
-        break;
-      case PayrollStateConsistencyErrorCode.STALE_DATA:
-        // Recovery: Re-fetch the latest payroll state before retrying.
-        console.error("Payroll state is stale. Refreshing...");
-        await sdk.refreshPayroll(payrollId);
-        break;
-      case PayrollStateConsistencyErrorCode.INVALID_TRANSITION:
-        // Recovery: The requested transition is not allowed from the current state.
-        console.error("Invalid payroll transition:", error.message);
-        break;
-    }
-  }
-}
-```
-
-### Payroll State Lifecycle
-
-The SDK enforces the following state lifecycle for a payroll:
-
-```text
-draft --> pending_approval --> approved --> executing --> completed
-                                                     \
-                                                      --> failed
-                                                      \
-                                                       --> cancelled
-```
-
-Each transition is validated by the SDK. Attempting an invalid transition (for example, executing a payroll that has not been approved) throws a `PayrollStateConsistencyError` with code `PAYROLL_STATE_INVALID_TRANSITION`.
-
-The consistency guard also detects stale or inconsistent local state by comparing the local payroll snapshot against the on-chain record. When a divergence is detected, a `PayrollStateConsistencyError` with code `PAYROLL_STATE_STALE_DATA` is thrown, signalling that the caller should refresh before retrying.
-
-### 6. Handling Payroll Calendar Overlap Errors (`PayrollCalendarOverlapError`)
-
-When scheduling payroll batches or periods, overlapping accounting cycles can cause double-disbursements or reconciliation conflicts. The SDK provides `assertNoPayrollCalendarOverlap` and `detectPayrollCalendarOverlaps`:
-
-```typescript
-import {
-  assertNoPayrollCalendarOverlap,
-  detectPayrollCalendarOverlaps,
-  PayrollCalendarOverlapError,
-} from "@zk-payroll/core";
-
-try {
-  assertNoPayrollCalendarOverlap([
-    { periodId: "2026-01", startDate: "2026-01-01", endDate: "2026-01-20" },
-    { periodId: "2026-02", startDate: "2026-01-15", endDate: "2026-02-15" },
-  ]);
-} catch (error) {
-  if (error instanceof PayrollCalendarOverlapError) {
-    console.error("Calendar overlap detected:", error.message);
-    for (const violation of error.violations) {
-      console.error(
-        `Conflict: ${violation.periodId} vs ${violation.conflictingPeriodId} (${violation.code}): ${violation.suggestedFix}`
-      );
-    }
-  }
-}
-```
+      showWarning("Please switch your wallet to the Te
